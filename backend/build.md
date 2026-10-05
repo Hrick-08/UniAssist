@@ -9,6 +9,7 @@ The backend provides the API layer for UniRoute, handling triage analysis, case 
 - **Database**: PostgreSQL (with SQLAlchemy ORM)
 - **Auth**: JWT (PyJWT)
 - **Validation**: Pydantic v2
+- **LLM**: Groq (OpenAI-compatible API), optional — rule-based triage runs without it
 - **Testing**: pytest + pytest-asyncio
 
 ## Prerequisites
@@ -86,16 +87,20 @@ SECRET_KEY=your-secret-key-min-32-chars
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# LLM
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+# LLM via Groq (optional; rule-based triage is used when LLM_API_KEY is empty)
+LLM_API_KEY=gsk_...
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_MODEL=openai/gpt-oss-120b
 LLM_TEMPERATURE=0.3
 
 # App
 ENVIRONMENT=development
 LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:3000
+UNIVERSITY_TIMEZONE=Europe/London
 ```
+
+`DATABASE_URL` accepts plain `postgresql://...?sslmode=require` URLs (e.g. from Neon); they are converted for asyncpg.
 
 ## Installation
 
@@ -122,8 +127,16 @@ createdb uniroute
 # Run migrations
 alembic upgrade head
 
-# Create initial data (categories, admin user)
-python -m app.scripts.seed
+# Seed categories (idempotent); --demo also creates demo accounts
+python -m app.scripts.seed --demo
+```
+
+Demo accounts (password `uniroute-demo`): `admin@uniroute.dev`, `wellbeing@uniroute.dev`,
+`academic@uniroute.dev` (staff), `student@uniroute.dev`.
+
+```bash
+# After changing models
+alembic revision --autogenerate -m "describe change"
 ```
 
 ## Development Server
@@ -138,7 +151,11 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 API docs available at: http://localhost:8000/docs
 
 ## Running Tests
+Tests run against a real local Postgres database whose name must end in `_test`
+(they truncate tables). They never use `DATABASE_URL`.
 ```bash
+createdb uniroute_test   # once; override with TEST_DATABASE_URL
+
 # All tests
 pytest
 
@@ -170,7 +187,11 @@ mypy app/
 | GET | `/api/v1/cases` | List student's cases |
 | GET | `/api/v1/cases/{id}` | Get case details |
 | POST | `/api/v1/appointments` | Schedule appointment |
-| GET | `/api/v1/appointments/available` | Get available slots |
+| GET | `/api/v1/appointments/available?category=` | Get available slots |
+| POST | `/api/v1/auth/register` | Student sign-up |
+| POST | `/api/v1/auth/login` | Sign in (JSON), returns bearer token |
+| GET | `/api/v1/auth/me` | Current user |
+| GET | `/api/v1/categories` | Categories, teams and resources |
 
 ### Admin-Facing
 | Method | Endpoint | Description |
@@ -181,6 +202,8 @@ mypy app/
 | PATCH | `/api/v1/admin/cases/{id}` | Update case (assign, status) |
 | POST | `/api/v1/admin/cases/{id}/appointments` | Schedule for student |
 | GET | `/api/v1/admin/analytics` | Trends & insights |
+| GET | `/api/v1/admin/staff` | Staff list (for assignment) |
+| PATCH | `/api/v1/categories/{slug}` | Edit team/guidance/keywords (admin) |
 
 ## Triage Service Details
 The triage service (`app/services/triage_service.py`) uses an LLM to:
@@ -202,7 +225,6 @@ The triage service (`app/services/triage_service.py`) uses an LLM to:
 - [ ] Set `ENVIRONMENT=production`
 - [ ] Generate strong `SECRET_KEY`
 - [ ] Configure production `DATABASE_URL`
-- [ ] Set up Redis with persistence
 - [ ] Configure CORS for production frontend domain
 - [ ] Set up SSL/TLS (reverse proxy: nginx/Traefik)
 - [ ] Configure logging aggregation
