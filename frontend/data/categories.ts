@@ -61,7 +61,7 @@ export const CATEGORIES: Category[] = [
     ]
   },
   {
-    id: "campus-life",
+    id: "accommodation",
     name: "Campus Life",
     icon: "Home",
     color: "from-amber-500 to-orange-600",
@@ -109,7 +109,7 @@ export const CATEGORIES: Category[] = [
     ]
   },
   {
-    id: "personal",
+    id: "social",
     name: "Personal & Social",
     icon: "Users",
     color: "from-fuchsia-600 to-indigo-600",
@@ -125,7 +125,7 @@ export const CATEGORIES: Category[] = [
     ]
   },
   {
-    id: "administration",
+    id: "administrative",
     name: "Administration",
     icon: "FileText",
     color: "from-slate-600 to-gray-700",

@@ -2,31 +2,27 @@
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
-import { 
-  Bot, 
-  Send, 
-  Mic, 
-  Paperclip, 
-  ShieldCheck, 
-  UserCheck, 
-  EyeOff, 
-  Sparkles, 
-  HelpCircle, 
-  RefreshCw, 
-  ChevronRight, 
-  ArrowRight,
-  AlertTriangle,
-  History,
-  GraduationCap
+import { useSearchParams } from "next/navigation";
+import {
+  Bot,
+  Send,
+  Mic,
+  Paperclip,
+  UserCheck,
+  EyeOff,
+  HelpCircle,
+  RefreshCw,
+  ChevronRight,
+  ArrowRight
 } from "lucide-react";
-import { 
-  ChatMessage, 
-  INITIAL_BOT_MESSAGE, 
-  evaluateTriage, 
+import {
+  ChatMessage,
+  INITIAL_BOT_MESSAGE,
+  mapTriageResponse,
   TriageResult,
-  URGENT_KEYWORDS 
+  URGENT_KEYWORDS
 } from "@/data/triage-flows";
+import { api, ApiError } from "@/lib/api";
 import { ChatMessageItem } from "@/components/chat-message";
 import { TypingIndicator } from "@/components/typing-indicator";
 import { SupportPath } from "@/components/support-path";
@@ -35,7 +31,6 @@ import { ExplainableModal } from "@/components/explainable-modal";
 import { UrgentSupportBanner } from "@/components/urgent-support-banner";
 
 function ChatContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initialCategory = searchParams.get("category");
 
@@ -46,7 +41,7 @@ function ChatContent() {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [conversationStep, setConversationStep] = useState<number>(0);
   const [selectedSubtopic, setSelectedSubtopic] = useState<string>("");
-  const [selectedSeverity, setSelectedSeverity] = useState<string>("");
+  const [, setSelectedSeverity] = useState<string>("");
   const [currentTriage, setCurrentTriage] = useState<TriageResult | null>(null);
   const [isExplainModalOpen, setIsExplainModalOpen] = useState(false);
   const [isUrgentTriggered, setIsUrgentTriggered] = useState(false);
@@ -63,20 +58,53 @@ function ChatContent() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  // Handle category preset if navigated from landing page
-  useEffect(() => {
-    if (initialCategory) {
-      const presetMessages: Record<string, string> = {
-        academic: "I'm struggling with coursework, exams and assignment deadlines.",
-        financial: "I need information regarding fee installments and scholarship verification.",
-        wellbeing: "I've been feeling extremely stressed, anxious and overwhelmed.",
-        safety: "I need to speak with campus security about a harassment concern."
-      };
+  // Calls the real triage API and renders either the urgent banner or the
+  // normal "triage complete" card, depending on the level the backend returns.
+  const runTriage = async (message: string, markUrgentIfLevel4: boolean) => {
+    try {
+      const response = await api.triage.create({
+        message,
+        category_hint: initialCategory ?? undefined
+      });
+      const triage = mapTriageResponse(response);
+      setCurrentTriage(triage);
+      setConversationStep(3);
 
-      const presetText = presetMessages[initialCategory] || `I need help regarding ${initialCategory}.`;
-      handleUserSubmit(presetText);
+      if (markUrgentIfLevel4 && triage.level === 4) {
+        setIsUrgentTriggered(true);
+        const urgentBotMsg: ChatMessage = {
+          id: `bot-urgent-${Date.now()}`,
+          sender: "bot",
+          text: "I hear you, and your safety is our utmost priority right now. I've flagged this for immediate human and security dispatch.",
+          timestamp: "Just now",
+          isUrgent: true,
+          triageData: triage
+        };
+        setMessages((prev) => [...prev, urgentBotMsg]);
+        return;
+      }
+
+      const botReply: ChatMessage = {
+        id: `bot-result-${Date.now()}`,
+        sender: "bot",
+        text: `Thank you for sharing that with me.\n\nBased on what you've described, I've identified your concern as **${triage.category}** with **${triage.priorityBadge.label}**.\n\nI recommend connecting with the **${triage.recommendedService}** to help you take the next step.`,
+        timestamp: "Just now",
+        triageData: triage
+      };
+      setMessages((prev) => [...prev, botReply]);
+    } catch (err) {
+      const detail = err instanceof ApiError ? String(err.detail) : "the server is unreachable";
+      const errorMsg: ChatMessage = {
+        id: `bot-error-${Date.now()}`,
+        sender: "bot",
+        text: `Sorry, I couldn't reach the UniAssist triage service (${detail}). Please try again in a moment.`,
+        timestamp: "Just now"
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsTyping(false);
     }
-  }, [initialCategory]);
+  };
 
   // Main message submission handler
   const handleUserSubmit = (text: string) => {
@@ -93,26 +121,12 @@ function ChatContent() {
     setInputText("");
     setIsTyping(true);
 
-    // Check for urgent safety concern
+    // Check for urgent safety concern: give instant UX feedback, but the
+    // backend's rule engine is still the source of truth for the level.
     const lower = text.toLowerCase();
     if (URGENT_KEYWORDS.some((kw) => lower.includes(kw))) {
-      setTimeout(() => {
-        setIsTyping(false);
-        setIsUrgentTriggered(true);
-        const triage = evaluateTriage([text]);
-        setCurrentTriage(triage);
-        setConversationStep(3);
-
-        const urgentBotMsg: ChatMessage = {
-          id: `bot-urgent-${Date.now()}`,
-          sender: "bot",
-          text: "I hear you, and your safety is our utmost priority right now. I've flagged this for immediate human and security dispatch.",
-          timestamp: "Just now",
-          isUrgent: true,
-          triageData: triage
-        };
-        setMessages((prev) => [...prev, urgentBotMsg]);
-      }, 700);
+      setIsUrgentTriggered(true);
+      void runTriage(text, true);
       return;
     }
 
@@ -155,8 +169,7 @@ function ChatContent() {
         };
         setMessages((prev) => [...prev, botReply]);
       } else {
-        // Step 3: Triage Complete
-        setConversationStep(3);
+        // Step 3: Triage Complete — send the full conversation to the real triage API.
         setSelectedSeverity(text);
 
         const allUserTexts = messages
@@ -164,24 +177,34 @@ function ChatContent() {
           .map((m) => m.text)
           .concat(text);
 
-        const result = evaluateTriage(allUserTexts, text);
-        setCurrentTriage(result);
-
-        const botReply: ChatMessage = {
-          id: `bot-result-${Date.now()}`,
-          sender: "bot",
-          text: `Thank you for sharing that with me.\n\nBased on what you've described, I've identified your concern as **${result.category}** (${result.subcategory}) with **${result.priorityBadge.label}**.\n\nI recommend connecting with the **${result.recommendedService}** to help you take the next step.`,
-          timestamp: "Just now",
-          triageData: result
-        };
-        setMessages((prev) => [...prev, botReply]);
+        setIsTyping(true);
+        void runTriage(allUserTexts.join(". "), false);
+        return;
       }
+      setIsTyping(false);
     }, 900);
   };
 
   const handleQuickReply = (option: string) => {
     handleUserSubmit(option);
   };
+
+  // Handle category preset if navigated from the landing page.
+  useEffect(() => {
+    if (initialCategory) {
+      const presetMessages: Record<string, string> = {
+        academic: "I'm struggling with coursework, exams and assignment deadlines.",
+        financial: "I need information regarding fee installments and scholarship verification.",
+        wellbeing: "I've been feeling extremely stressed, anxious and overwhelmed.",
+        safety: "I need to speak with campus security about a harassment concern."
+      };
+
+      const presetText = presetMessages[initialCategory] || `I need help regarding ${initialCategory}.`;
+      // Deferred a tick so the initial submit's setState calls aren't synchronous within this effect.
+      queueMicrotask(() => handleUserSubmit(presetText));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCategory]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
@@ -405,7 +428,7 @@ function ChatContent() {
                 {/* Continue Buttons */}
                 <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-800">
                   <Link
-                    href={`/recommendation?category=${encodeURIComponent(currentTriage.category)}&sub=${encodeURIComponent(currentTriage.subcategory)}&level=${currentTriage.level}&service=${encodeURIComponent(currentTriage.recommendedService)}`}
+                    href={`/recommendation?id=${encodeURIComponent(currentTriage.triageId ?? "")}`}
                     className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs sm:text-sm transition shadow-md shadow-emerald-500/20"
                   >
                     <span>Yes, continue to recommendations</span>
@@ -512,7 +535,7 @@ function ChatContent() {
                   Confidence: <span className="font-semibold text-emerald-400">{currentTriage.confidenceScore}%</span>
                 </p>
                 <Link
-                  href={`/recommendation?category=${encodeURIComponent(currentTriage.category)}&sub=${encodeURIComponent(currentTriage.subcategory)}&level=${currentTriage.level}&service=${encodeURIComponent(currentTriage.recommendedService)}`}
+                  href={`/recommendation?id=${encodeURIComponent(currentTriage.triageId ?? "")}`}
                   className="block text-center w-full py-2 bg-slate-800 hover:bg-slate-750 text-emerald-400 rounded-xl font-bold transition mt-2 border border-slate-700"
                 >
                   View Full Recommendation →

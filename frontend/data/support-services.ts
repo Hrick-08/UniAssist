@@ -1,3 +1,15 @@
+// Maps each service's display category to the backend's category slug, so
+// "Book Appointment" can hand off into a real triage conversation.
+export const SUPPORT_CATEGORY_SLUGS: Record<string, string> = {
+  Academic: "academic",
+  Wellbeing: "wellbeing",
+  Financial: "financial",
+  Safety: "safety",
+  Career: "career",
+  "Campus Life": "accommodation",
+  Administration: "administrative"
+};
+
 export interface SupportService {
   id: string;
   name: string;

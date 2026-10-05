@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
+import { AuthProvider } from "@/components/auth-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -21,9 +22,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} dark antialiased`}>
       <body className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
+        <AuthProvider>
         <Navbar />
         <main className="flex-1">{children}</main>
-        
+
         {/* Universal Student Footer */}
         <footer className="border-t border-slate-900 bg-slate-950/80 py-8 text-xs text-slate-500">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -40,6 +42,7 @@ export default function RootLayout({
             </div>
           </div>
         </footer>
+        </AuthProvider>
       </body>
     </html>
   );

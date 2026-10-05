@@ -71,7 +71,9 @@ backend/
 │   └── versions/
 ├── requirements.txt
 ├── requirements-dev.txt
-├── pyproject.toml
+├── pytest.ini
+├── ruff.toml
+├── mypy.ini
 ├── .env.example
 └── Dockerfile
 ```
@@ -104,19 +106,13 @@ UNIVERSITY_TIMEZONE=Europe/London
 
 ## Installation
 
-### Using uv (recommended)
-```bash
-cd backend
-uv sync
-```
-
-### Using pip
 ```bash
 cd backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt   # installs requirements.txt too, plus test/lint tools
+# or, for a production install without dev/test tooling:
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
 ```
 
 ## Database Setup
@@ -141,11 +137,11 @@ alembic revision --autogenerate -m "describe change"
 
 ## Development Server
 ```bash
-# With uv
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# With the venv activated
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# With pip
-.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Or directly, without activating
+.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000   # Windows: .venv\Scripts\uvicorn.exe
 ```
 
 API docs available at: http://localhost:8000/docs

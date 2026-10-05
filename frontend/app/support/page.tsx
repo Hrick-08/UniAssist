@@ -16,7 +16,7 @@ import {
   Building,
   Check
 } from "lucide-react";
-import { SUPPORT_SERVICES, SupportService } from "@/data/support-services";
+import { SUPPORT_SERVICES, SUPPORT_CATEGORY_SLUGS, SupportService } from "@/data/support-services";
 
 export default function SupportMapPage() {
   const [selectedService, setSelectedService] = useState<SupportService>(SUPPORT_SERVICES[0]);
@@ -214,11 +214,11 @@ export default function SupportMapPage() {
           {/* Action Buttons */}
           <div className="pt-2 flex flex-col sm:flex-row gap-3">
             <Link
-              href={`/appointments?service=${encodeURIComponent(selectedService.name)}`}
+              href={`/chat?category=${encodeURIComponent(SUPPORT_CATEGORY_SLUGS[selectedService.category] ?? "")}`}
               className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-3 px-4 rounded-xl text-xs sm:text-sm transition shadow-md shadow-emerald-500/20"
             >
               <Calendar className="w-4 h-4 stroke-[2.5]" />
-              <span>Book Appointment</span>
+              <span>Start Triage to Book</span>
             </Link>
 
             <button

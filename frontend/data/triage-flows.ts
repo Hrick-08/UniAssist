@@ -1,3 +1,5 @@
+import type { TriageResponse } from "@/lib/api";
+
 export interface TriageResult {
   category: string;
   subcategory: string;
@@ -18,6 +20,10 @@ export interface TriageResult {
   reasoning: string[];
   suggestedAction: "guidance" | "recommend_support" | "create_case" | "immediate_escalation";
   summary: string;
+  // Present once the backend triage result is fetched; carried through so
+  // downstream pages (recommendation, appointments) can call the real API.
+  triageId?: string;
+  caseReference?: string | null;
 }
 
 export interface ChatMessage {
@@ -31,7 +37,7 @@ export interface ChatMessage {
 }
 
 export const URGENT_KEYWORDS = [
-  "suicide", "harm", "kill myself", "end my life", "assault", "weapon", "threatened", 
+  "suicide", "harm", "kill myself", "end my life", "assault", "weapon", "threatened",
   "stalking", "danger", "unsafe", "physical violence", "abuse", "emergency"
 ];
 
@@ -50,138 +56,52 @@ export const INITIAL_BOT_MESSAGE: ChatMessage = {
   ]
 };
 
-export function evaluateTriage(userHistory: string[], selectedSeverity?: string): TriageResult {
-  const combinedText = userHistory.join(" ").toLowerCase();
-
-  // 1. Check for immediate safety risk (Level 4)
-  if (URGENT_KEYWORDS.some(kw => combinedText.includes(kw)) || combinedText.includes("safety") && combinedText.includes("urgent")) {
-    return {
-      category: "Safety & Security",
-      subcategory: "Immediate Threat / Safety Concern",
-      level: 4,
-      levelLabel: "Level 4 — Immediate Safety Escalation",
-      levelColor: "red",
-      priorityBadge: {
-        label: "CRITICAL — Immediate Escalation",
-        bg: "bg-red-50",
-        text: "text-red-700",
-        dot: "bg-red-500",
-        border: "border-red-300"
-      },
-      recommendedService: "Campus Safety & Emergency Dispatch",
-      recommendedServiceId: "campus-safety",
-      expectedResponse: "Immediate (Under 5 minutes)",
-      confidenceScore: 99,
-      reasoning: [
-        "Language indicated imminent safety risk or harassment concern",
-        "Standard conversational triage bypassed to ensure student protection",
-        "Direct emergency helpline and campus security dispatch triggered"
-      ],
-      suggestedAction: "immediate_escalation",
-      summary: "High-priority safety concern flagged for immediate security and duty-counselor intervention."
-    };
-  }
-
-  // 2. High severity / Level 3
-  if (
-    selectedSeverity === "I need help urgently" || 
-    selectedSeverity === "I'm struggling to keep up" ||
-    combinedText.includes("can't attend") ||
-    combinedText.includes("burnout") ||
-    combinedText.includes("panic attack") ||
-    combinedText.includes("hopeless")
-  ) {
-    const isWellbeing = combinedText.includes("stress") || combinedText.includes("panic") || combinedText.includes("burnout") || combinedText.includes("overwhelm");
-    
-    return {
-      category: isWellbeing ? "Wellbeing" : "Academic",
-      subcategory: isWellbeing ? "Severe Stress & Burnout" : "Coursework Distress & Attendance",
-      level: 3,
-      levelLabel: "Level 3 — Priority Support",
-      levelColor: "orange",
-      priorityBadge: {
-        label: "HIGH — Priority Support",
-        bg: "bg-orange-50",
-        text: "text-orange-700",
-        dot: "bg-orange-500",
-        border: "border-orange-300"
-      },
-      recommendedService: isWellbeing ? "Student Wellbeing & Counseling Support" : "Academic Advising Center",
-      recommendedServiceId: isWellbeing ? "wellbeing-counseling" : "academic-advising",
-      expectedResponse: "Within 24 hours",
-      confidenceScore: 94,
-      reasoning: [
-        `You indicated significant disruption to your day-to-day ${isWellbeing ? "emotional state" : "academic progress"}`,
-        "You reported struggling to keep up with essential university commitments",
-        "Direct human support with appointment scheduling is strongly recommended"
-      ],
-      suggestedAction: "create_case",
-      summary: "Priority student case generated. Recommended human advisor outreach and calendar booking."
-    };
-  }
-
-  // 3. Level 2 (Support recommended) - Default for "It's affecting my studies" or moderate issues
-  if (
-    selectedSeverity === "It's affecting my studies" || 
-    combinedText.includes("exam") || 
-    combinedText.includes("struggling") ||
-    combinedText.includes("assignments") ||
-    combinedText.includes("workload") ||
-    combinedText.includes("fee")
-  ) {
-    const isFin = combinedText.includes("fee") || combinedText.includes("scholarship") || combinedText.includes("money");
-    
-    return {
-      category: isFin ? "Financial" : "Academic",
-      subcategory: isFin ? "Fee Installments & Deadlines" : "Exam & Workload Management",
-      level: 2,
-      levelLabel: "Level 2 — Support Recommended",
-      levelColor: "yellow",
-      priorityBadge: {
-        label: "Support Recommended",
-        bg: "bg-amber-50",
-        text: "text-amber-800",
-        dot: "bg-amber-500",
-        border: "border-amber-300"
-      },
-      recommendedService: isFin ? "Financial Aid & Scholarship Office" : "Academic Advising Center",
-      recommendedServiceId: isFin ? "financial-aid" : "academic-advising",
-      expectedResponse: "Within 1-2 business days",
-      confidenceScore: 91,
-      reasoning: [
-        "You mentioned difficulty managing coursework and upcoming examination pressure",
-        "You indicated that the situation is impacting your regular academic pace",
-        "Connecting with a designated university advisor will help plan workload mitigation"
-      ],
-      suggestedAction: "recommend_support",
-      summary: "Support recommended with Academic Advising to create a custom study and extension plan."
-    };
-  }
-
-  // 4. Level 1 - Informational / Guidance
-  return {
-    category: "General Support",
-    subcategory: "University Information & Self-Service",
-    level: 1,
-    levelLabel: "Level 1 — General Guidance",
+const LEVEL_META: Record<1 | 2 | 3 | 4, { levelColor: string; badge: TriageResult["priorityBadge"] }> = {
+  1: {
     levelColor: "green",
-    priorityBadge: {
-      label: "General Guidance",
-      bg: "bg-emerald-50",
-      text: "text-emerald-700",
-      dot: "bg-emerald-500",
-      border: "border-emerald-300"
-    },
-    recommendedService: "Student Knowledge Base & Self-Service",
-    recommendedServiceId: "registrar-office",
-    expectedResponse: "Instant self-service resolution",
-    confidenceScore: 88,
-    reasoning: [
-      "Your inquiry matches existing verified university guides and knowledge base articles",
-      "No critical urgency or safety flags were detected in your submission",
-      "Immediate self-service resolution is available without waiting in departmental queues"
-    ],
-    suggestedAction: "guidance",
-    summary: "Instant guidance provided with links to relevant university portals and forms."
+    badge: { label: "General Guidance", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", border: "border-emerald-300" }
+  },
+  2: {
+    levelColor: "yellow",
+    badge: { label: "Support Recommended", bg: "bg-amber-50", text: "text-amber-800", dot: "bg-amber-500", border: "border-amber-300" }
+  },
+  3: {
+    levelColor: "orange",
+    badge: { label: "HIGH — Priority Support", bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500", border: "border-orange-300" }
+  },
+  4: {
+    levelColor: "red",
+    badge: { label: "CRITICAL — Immediate Escalation", bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500", border: "border-red-300" }
+  }
+};
+
+const SUGGESTED_ACTION: Record<string, TriageResult["suggestedAction"]> = {
+  provide_guidance: "guidance",
+  recommend_support: "recommend_support",
+  create_case_and_prioritize: "create_case",
+  immediate_escalation: "immediate_escalation"
+};
+
+/** Adapts the backend's TriageResponse into the shape the UI components expect. */
+export function mapTriageResponse(response: TriageResponse): TriageResult {
+  const level = response.level as 1 | 2 | 3 | 4;
+  const meta = LEVEL_META[level] ?? LEVEL_META[1];
+
+  return {
+    category: response.category.name,
+    subcategory: response.secondary_category?.name ?? response.topics[0] ?? response.category.description,
+    level,
+    levelLabel: `Level ${level} — ${response.level_label}`,
+    levelColor: meta.levelColor,
+    priorityBadge: { ...meta.badge, label: response.level_label },
+    recommendedService: response.recommended_team,
+    recommendedServiceId: response.category.slug,
+    expectedResponse: response.expected_response ?? "Instant self-service resolution",
+    confidenceScore: Math.round(response.confidence * 100),
+    reasoning: response.reasons.length > 0 ? response.reasons : [response.guidance.message],
+    suggestedAction: SUGGESTED_ACTION[response.action] ?? "recommend_support",
+    summary: response.guidance.message,
+    triageId: response.id,
+    caseReference: response.case_reference
   };
 }
