@@ -1,7 +1,3 @@
-import pypandoc
-
-readme = r"""# UniRoute — Intelligent Student Support Triage & Routing
-
 > **Tell us what's wrong. We'll get you to the right support.**
 
 UniRoute is a student-support triage and routing prototype for the ServiceNow event.
